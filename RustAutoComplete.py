@@ -133,11 +133,13 @@ def run_racer(view, cmd_list):
     if os.name == 'nt':
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+    #debug
+    #print(" ".join(cmd_list))
+    
     process = Popen(cmd_list, stdout=PIPE, env=env, startupinfo=startupinfo)
     (output, err) = process.communicate()
     exit_code = process.wait()
-
-#    print(output)
 
     # Remove temp file
     os.remove(temp_file_path)
@@ -165,6 +167,62 @@ def run_racer(view, cmd_list):
         print("failed: exit_code:", exit_code, output)
     return results
 
+def parse_results(view, raw_output, with_snippet):
+    results = []
+    match_string = "MATCH "
+    for line in raw_output.splitlines():
+        if line.startswith(match_string):
+            if with_snippet:
+                parts = line[len(match_string):].split(';', 7)
+            else:
+                parts = line[len(match_string):].split(',', 6)
+                parts.insert(1, "")
+
+            result = Result(parts)
+            if result.path == view.file_name():
+                continue
+            if result.path == "TODO: take the temp file path":#temp_file_path:
+                result.path = "TODO: TAKE TEMP FILE PATH" #view.file_name()
+            results.append(result)
+
+    return results
+
+
+def racer_ffi_complete_with_snippet(view, row, col):
+    import ctypes
+
+    save_dir = determine_save_dir(view)
+    #print(save_dir)
+
+    region = sublime.Region(0, view.size())
+    content = view.substr(region)
+    
+    # Save that buffer to a temporary file for racer to use
+    temp_file = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, dir=save_dir)
+    temp_file_path = temp_file.name
+    temp_file.write(content)
+    temp_file.close()
+
+
+    #HACK - modify environ variable
+    #expanded_search_paths = expand_all(settings.search_paths)
+    #env_path = ":".join(expanded_search_paths)
+    #os.environ['RUST_SRC_PATH'] = env_path
+
+    #call the ffi and return the string
+    out_string = ctypes.create_string_buffer("++EMPTY STRING BUFFER++".encode('utf-8'), 500000)
+    #print("created out string")
+
+    libracer = ctypes.CDLL("/home/bollu/prog/racer/target/libracer-lib-a4b9b29f855e0068.so")
+    #print("loaded DLL")
+        
+    libracer.complete_with_snippet_ffi(row, col, temp_file_path.encode('utf-8'), out_string)
+    #print("^^^\nstrcpy bytes: ", out_string, " | string: |", out_string.value, "\n^^^")
+    os.remove(temp_file_path)
+
+    return str(out_string.value.decode("utf-8"))
+
+
 class RustAutocomplete(sublime_plugin.EventListener):
 
     def on_query_completions(self, view, prefix, locations):
@@ -177,7 +235,13 @@ class RustAutocomplete(sublime_plugin.EventListener):
             row += 1
 
             try:
-                raw_results = run_racer(view, ["complete-with-snippet", str(row), str(col)])
+                #raw_results = run_racer(view, ["complete-with-snippet", str(row), str(col)])
+                raw_results = racer_ffi_complete_with_snippet(view, row, col)
+                raw_results = parse_results(view, raw_results, with_snippet=True)
+                #print("bytes: ", raw_results)
+                #raw_results = raw_results.decode('utf-8')
+                #print("string: ", raw_results)
+
             except FileNotFoundError:
                 print("Unable to find racer executable (check settings)")
                 return
