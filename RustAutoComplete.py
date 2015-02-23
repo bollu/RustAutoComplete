@@ -177,6 +177,7 @@ def parse_results(view, raw_output, with_snippet):
             else:
                 parts = line[len(match_string):].split(',', 6)
                 parts.insert(1, "")
+                print("parts = ", parts)
 
             result = Result(parts)
             if result.path == view.file_name():
@@ -203,6 +204,37 @@ def racer_ffi_complete_with_snippet(view, row, col):
     temp_file.write(content)
     temp_file.close()
 
+    #HACK - modify environ variable
+    #expanded_search_paths = expand_all(settings.search_paths)
+    #env_path = ":".join(expanded_search_paths)
+    #os.environ['RUST_SRC_PATH'] = env_path
+
+    #call the ffi and return the string
+    out_string = ctypes.create_string_buffer("++EMPTY STRING BUFFER++".encode('utf-8'), 500000)
+
+    libracer = ctypes.CDLL("/home/bollu/prog/racer/target/libracer-lib-a4b9b29f855e0068.so")
+
+    libracer.complete_with_snippet_ffi(row, col, temp_file_path.encode('utf-8'), out_string)
+    os.remove(temp_file_path)
+
+    return str(out_string.value.decode("utf-8"))
+
+
+def racer_ffi_find_defintion(view, row, col):
+    import ctypes
+
+    save_dir = determine_save_dir(view)
+    #print(save_dir)
+
+    region = sublime.Region(0, view.size())
+    content = view.substr(region)
+    
+    # Save that buffer to a temporary file for racer to use
+    temp_file = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, dir=save_dir)
+    temp_file_path = temp_file.name
+    temp_file.write(content)
+    temp_file.close()
+
 
     #HACK - modify environ variable
     #expanded_search_paths = expand_all(settings.search_paths)
@@ -211,13 +243,9 @@ def racer_ffi_complete_with_snippet(view, row, col):
 
     #call the ffi and return the string
     out_string = ctypes.create_string_buffer("++EMPTY STRING BUFFER++".encode('utf-8'), 500000)
-    #print("created out string")
-
     libracer = ctypes.CDLL("/home/bollu/prog/racer/target/libracer-lib-a4b9b29f855e0068.so")
-    #print("loaded DLL")
         
-    libracer.complete_with_snippet_ffi(row, col, temp_file_path.encode('utf-8'), out_string)
-    #print("^^^\nstrcpy bytes: ", out_string, " | string: |", out_string.value, "\n^^^")
+    libracer.find_definition_ffi(row, col, temp_file_path.encode('utf-8'), out_string)
     os.remove(temp_file_path)
 
     return str(out_string.value.decode("utf-8"))
@@ -272,7 +300,8 @@ class RustGotoDefinitionCommand(sublime_plugin.TextCommand):
         row, col = self.view.rowcol(self.view.sel()[0].begin())
         row += 1
 
-        results = run_racer(self.view, ["find-definition", str(row), str(col)])
+        raw_results = racer_ffi_complete_with_snippet(self.view, row, col)
+        raw_results = parse_results(self.view, raw_results, with_snippet=False)
 
         if len(results) == 1:
             result = results[0]
@@ -283,3 +312,4 @@ class RustGotoDefinitionCommand(sublime_plugin.TextCommand):
                 path = 'c:' + path
             encoded_path = "{0}:{1}:{2}".format(path, result.row, result.column)
             self.view.window().open_file(encoded_path, sublime.ENCODED_POSITION)
+
