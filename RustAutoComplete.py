@@ -217,7 +217,8 @@ def racer_ffi_complete_with_snippet(view, row, col):
     libracer.complete_with_snippet_ffi(row, col, temp_file_path.encode('utf-8'), out_string)
     os.remove(temp_file_path)
 
-    return str(out_string.value.decode("utf-8"))
+    #put the result into multiprocessing
+    return out_string.value.decode("utf-8")
 
 
 def racer_ffi_find_defintion(view, row, col):
@@ -230,10 +231,10 @@ def racer_ffi_find_defintion(view, row, col):
     content = view.substr(region)
     
     # Save that buffer to a temporary file for racer to use
-    temp_file = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, dir=save_dir)
+    temp_file = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=True, dir=save_dir)
     temp_file_path = temp_file.name
     temp_file.write(content)
-    temp_file.close()
+    #temp_file.close()
 
 
     #HACK - modify environ variable
@@ -246,6 +247,7 @@ def racer_ffi_find_defintion(view, row, col):
     libracer = ctypes.CDLL("/home/bollu/prog/racer/target/libracer-lib-a4b9b29f855e0068.so")
         
     libracer.find_definition_ffi(row, col, temp_file_path.encode('utf-8'), out_string)
+    temp_file.close()
     os.remove(temp_file_path)
 
     return str(out_string.value.decode("utf-8"))
@@ -262,11 +264,14 @@ class RustAutocomplete(sublime_plugin.EventListener):
             row, col = view.rowcol(locations[0])
             row += 1
 
+            raw_results = None
+
             try:
+                print("trying to autocomplete")
                 #raw_results = run_racer(view, ["complete-with-snippet", str(row), str(col)])
                 raw_results = racer_ffi_complete_with_snippet(view, row, col)
+                print("raw result: ", raw_results)
                 raw_results = parse_results(view, raw_results, with_snippet=True)
-                #print("bytes: ", raw_results)
                 #raw_results = raw_results.decode('utf-8')
                 #print("string: ", raw_results)
 
